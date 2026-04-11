@@ -2,8 +2,8 @@ from cs336_basics.tokenizer import train_bpe
 import pickle
 import time
 
-input_path = "data/TinyStoriesV2-GPT4-train.txt"
-vocab_size = 10000
+input_path = "data/owt_train.txt"
+vocab_size = 32000
 special_tokens = ["<|endoftext|>"]
 
 #  train bpe on TinyStories dataset and count time
@@ -16,9 +16,9 @@ print(" The total time for training is: ", duration)
 #######################################################################
 #  Serialize the resulting vocabulary and merges todiskfor further inspection.
 #######################################################################
-with open("data/TinyStories_vocab.pkl", "wb") as f:
+with open("data/owt_vocab.pkl", "wb") as f:
     pickle.dump(vocab, f)
-with open("data/TinyStories_merges", "wb") as f:
+with open("data/owt_merges.pkl", "wb") as f:
     pickle.dump(merges, f)
 
 # find the logest token

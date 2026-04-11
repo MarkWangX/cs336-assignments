@@ -3,6 +3,7 @@ import regex as re
 from typing import BinaryIO
 from collections import Counter, defaultdict
 from multiprocessing import Pool
+from tqdm import tqdm
 ###############################################################
 # find_chunk_boundaries will receive a file and 
 # return a list of int that indicates the boundaries of chunks 
@@ -130,6 +131,8 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str]):
             byte_pair_counts[pair] += freq
             pair_indices[pair].add(word)
     
+    pbar = tqdm(total=vocab_size, initial=cur_vocab_size, desc="Training BPE Merges")
+
     while(cur_vocab_size < vocab_size):
         # safety check
         if not byte_pair_counts:
@@ -180,5 +183,7 @@ def train_bpe(input_path: str, vocab_size: int, special_tokens: list[str]):
         merges.append(merge_pair)
         vocab[cur_vocab_size] = merged_byte
         cur_vocab_size += 1
+
+        pbar.update(1)
     
     return vocab, merges
