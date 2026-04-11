@@ -266,4 +266,3 @@ class Tokenizer:
         for id in ids:
             tokens.append(self.vocab[id])
         return tokens
-  
