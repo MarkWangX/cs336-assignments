@@ -1,6 +1,6 @@
 import os
 import regex as re
-from typing import BinaryIO
+from typing import BinaryIO, Iterable, Iterator
 from collections import Counter, defaultdict
 from multiprocessing import Pool
 from tqdm import tqdm
@@ -200,7 +200,7 @@ class Tokenizer:
                 special_token = special_token.encode("utf-8")
                 if special_token not in existing_values:
                     self.vocab[vocab_size] = special_token
-                    existing_values.add(special_tokens)
+                    existing_values.add(special_token)
                     vocab_size += 1
         self.token_to_ids = {value: key for key, value in self.vocab.items()}
         self.merge_dict = {pair: i for i, pair in enumerate(self.merges)}
@@ -217,52 +217,113 @@ class Tokenizer:
 
     def encode(self, text:str) -> list[int]:
         standard_pattern = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        
+        compiled_standard = re.compile(standard_pattern)
+
         if hasattr(self, 'special_tokens') and self.special_tokens:
-            special_pattern = "|".join(re.escape(tok) for tok in self.special_tokens)
-            final_pattern = f"({special_pattern}|{standard_pattern})"
+            special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+            special_pattern = "|".join(re.escape(tok) for tok in special_tokens)
+            chunks = re.split(f"({special_pattern})", text)
         else:
-            final_pattern = standard_pattern
+            chunks = [text]
 
-        compiled_pat = re.compile(final_pattern)
-        pre_tokens = compiled_pat.findall(text)
-
-        for word in pre_tokens:
-            if hasattr(self, 'special_tokens') and self.special_tokens and word in self.special_tokens:
-                word_bytes = word.encode('utf-8')
+        out_ids = []
+        for chunk in chunks:
+            if not chunk:
+                continue
+            
+            if hasattr(self, 'special_tokens') and self.special_tokens and chunk in self.special_tokens:
+                word_bytes = chunk.encode('utf-8')
                 out_ids.append(self.token_to_ids[word_bytes])
                 continue
 
-            out_ids = []
-            word_byte = [bytes([b]) for b in word.encode("utf-8")]
-            while len(word_byte) > 1:
-                pairs = list(zip(word_byte[:-1], word_byte[1:]))
+            pre_tokens = compiled_standard.findall(chunk)
+            for word in pre_tokens:
+                word_byte = [bytes([b]) for b in word.encode("utf-8")]
+                while len(word_byte) > 1:
+                    pairs = list(zip(word_byte[:-1], word_byte[1:]))
 
-                valid_pairs = [pair for pair in pairs if pair in self.merge_dict]
-                if not valid_pairs:
-                    break
-                best_pairs = min(valid_pairs, key = lambda x: valid_pairs[x])
-                first, second = best_pairs
-                
-                i = 1
-                new_word = []         
-                while i < len(word_byte):
-                        if i < len(word_byte) - 1 and word_byte[i] == first and word_byte[i+1] == second:
-                            new_word.append(first + second)
-                            i += 2
-                            break
-                        else:
-                            new_word.append(word[i])
-                            i += 1
-                word_byte = new_word
+                    valid_pairs = [pair for pair in pairs if pair in self.merge_dict]
+                    if not valid_pairs:
+                        break
+                    best_pairs = min(valid_pairs, key = lambda x: self.merge_dict[x])
+                    first, second = best_pairs
+                    
+                    i = 0
+                    new_word = []         
+                    while i < len(word_byte):
+                            if i < len(word_byte) - 1 and word_byte[i] == first and word_byte[i+1] == second:
+                                new_word.append(first + second)
+                                i += 2
+                                continue
+                            else:
+                                new_word.append(word_byte[i])
+                                i += 1
+                    word_byte = new_word
 
-        for b in new_word:
-            out_ids.append(self.token_to_ids[b])
+                for b in word_byte:
+                    out_ids.append(self.token_to_ids[b])
 
         return out_ids
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        standard_pattern = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        compiled_standard = re.compile(standard_pattern)
+        
+        if hasattr(self, 'special_tokens') and self.special_tokens:
+            special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+            special_pattern = "|".join(re.escape(tok) for tok in special_tokens)
+        else:
+            special_pattern = None
+        
+        for text in iterable:
+            if special_pattern:
+                chunks = re.split(f"({special_pattern})", text)
+            else:
+                chunks = [text]
+
+            for chunk in chunks:
+                if not chunk:
+                    continue
+
+                if self.special_tokens and chunk in self.special_tokens:
+                    word_bytes = chunk.encode('utf-8')
+                    yield self.token_to_ids[word_bytes]
+                    continue
+
+                pre_tokens = compiled_standard.findall(chunk)
+                for word in pre_tokens:
+                    if hasattr(self, 'special_tokens') and self.special_tokens and word in self.special_tokens:
+                        word_bytes = word.encode('utf-8')
+                        yield self.token_to_ids[word_bytes]
+                        continue
+
+                    word_byte = [bytes([b]) for b in word.encode("utf-8")]
+                    while len(word_byte) > 1:
+                        pairs = list(zip(word_byte[:-1], word_byte[1:]))
+
+                        valid_pairs = [pair for pair in pairs if pair in self.merge_dict]
+                        if not valid_pairs:
+                            break
+                        best_pairs = min(valid_pairs, key = lambda x: self.merge_dict[x])
+                        first, second = best_pairs
+                        
+                        i = 0
+                        new_word = []         
+                        while i < len(word_byte):
+                                if i < len(word_byte) - 1 and word_byte[i] == first and word_byte[i+1] == second:
+                                    new_word.append(first + second)
+                                    i += 2
+                                    continue
+                                else:
+                                    new_word.append(word_byte[i])
+                                    i += 1
+                        word_byte = new_word
+
+                    for b in word_byte:
+                        yield self.token_to_ids[b]
 
     def decode(self, ids: list[int]) -> str:
         tokens = []
         for id in ids:
             tokens.append(self.vocab[id])
-        return tokens
+        return b''.join(tokens).decode("utf-8", errors="replace")
