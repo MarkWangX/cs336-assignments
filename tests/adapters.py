@@ -57,7 +57,7 @@ def run_embedding(
     model.load_state_dict({"weight": weights})
     return model.forward(token_ids)
 
-
+from cs336_basics.transformer import positionwise_feedforward
 def run_swiglu(
     d_model: int,
     d_ff: int,
@@ -87,7 +87,13 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
-    raise NotImplementedError
+    swiglu = positionwise_feedforward(d_model, d_ff)
+    swiglu.load_state_dict({
+        "w1_weight": w1_weight,
+        "w2_weight": w2_weight,
+        "w3_weight": w3_weight
+    })
+    return swiglu.forward(in_features)
 
 
 def run_scaled_dot_product_attention(
@@ -184,7 +190,7 @@ def run_multihead_self_attention_with_rope(
     """
     raise NotImplementedError
 
-
+from cs336_basics.transformer import rope
 def run_rope(
     d_k: int,
     theta: float,
@@ -204,7 +210,8 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    model = rope(theta, d_k, max_seq_len)
+    return model.forward(in_query_or_key, token_positions)
 
 
 def run_transformer_block(
