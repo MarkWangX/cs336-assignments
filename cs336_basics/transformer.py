@@ -13,10 +13,11 @@ class Linear(torch.nn.Module):
             torch.empty(in_features, out_features), device=device, dtype=dtype
         )
 
-        self.weight = nn.__init_subclass__(
+        self.weight = nn.trunc_normal(
             weight,
-            mean=mean, std=std
+            mean=mean, std=std,
+            a=-3*std, b=3*std
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return x @ self.weight
+        return einsum('dout din, din -> dout', self.weight, x)
