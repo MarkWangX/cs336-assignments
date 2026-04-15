@@ -95,7 +95,7 @@ def run_swiglu(
     })
     return swiglu.forward(in_features)
 
-
+from cs336_basics.transformer import scaled_dot_product_attention
 def run_scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
     K: Float[Tensor, " ... keys d_k"],
@@ -114,9 +114,9 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q, K, V, mask)
 
-
+from cs336_basics.transformer import multihead_self_attention
 def run_multihead_self_attention(
     d_model: int,
     num_heads: int,
@@ -148,9 +148,16 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    model = multihead_self_attention(d_model, num_heads)
+    model.load_state_dict({
+        "Q_weight.weight": q_proj_weight,
+        "K_weight.weight": k_proj_weight,
+        "V_weight.weight": v_proj_weight,
+        "O_weight.weight": o_proj_weight,
+    })
+    return model.forward(in_features)
 
-
+from cs336_basics.transformer import multihead_self_attention
 def run_multihead_self_attention_with_rope(
     d_model: int,
     num_heads: int,
@@ -188,7 +195,14 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    model = multihead_self_attention(d_model, num_heads, max_seq_len, theta)
+    model.load_state_dict({
+        "Q_weight.weight": q_proj_weight,
+        "K_weight.weight": k_proj_weight,
+        "V_weight.weight": v_proj_weight,
+        "O_weight.weight": o_proj_weight,
+    })
+    return model.forward(in_features, token_positions)
 
 from cs336_basics.transformer import rope
 def run_rope(
@@ -213,7 +227,8 @@ def run_rope(
     model = rope(theta, d_k, max_seq_len)
     return model.forward(in_query_or_key, token_positions)
 
-
+from einops import repeat
+from cs336_basics.transformer import transformer_block
 def run_transformer_block(
     d_model: int,
     num_heads: int,
@@ -284,9 +299,24 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    batch, sequence_length = in_features.size(0), in_features.size(1)
+    token_positions = torch.arange(sequence_length, dtype=torch.long, device=in_features.device)
+    token_positions = repeat(token_positions, "sequence_length -> batch sequence_length", batch=batch)
+    model = transformer_block(d_model, num_heads, max_seq_len, theta, d_ff)
+    model.load_state_dict({
+        "attn.Q_weight.weight": weights['attn.q_proj.weight'],
+        "attn.K_weight.weight": weights['attn.k_proj.weight'],
+        "attn.V_weight.weight": weights['attn.v_proj.weight'],
+        "attn.O_weight.weight": weights['attn.output_proj.weight'],
+        "rmsnorm1.weight": weights['ln1.weight'],
+        "rmsnorm2.weight": weights['ln2.weight'],
+        "ffn.w1_weight": weights['ffn.w1.weight'],
+        "ffn.w2_weight": weights['ffn.w2.weight'],
+        "ffn.w3_weight": weights['ffn.w3.weight'],
+    })
+    return model.forward(in_features, token_positions)
 
-
+from cs336_basics.transformer import transformer_lm
 def run_transformer_lm(
     vocab_size: int,
     context_length: int,
@@ -366,7 +396,28 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    model = transformer_lm(vocab_size, context_length, num_layers, d_model, num_heads, rope_theta, d_ff)
+    
+    mapped_weights = {}
+    mapped_weights["embedding.weight"] = weights['token_embeddings.weight']
+    mapped_weights["rmsnorm.weight"] = weights['ln_final.weight']
+    mapped_weights["linear.weight"] = weights['lm_head.weight']
+    for layer in range(num_layers):
+        mapped_weights[f'layers.{layer}.attn.Q_weight.weight'] = weights[f'layers.{layer}.attn.q_proj.weight']
+        mapped_weights[f'layers.{layer}.attn.K_weight.weight'] = weights[f'layers.{layer}.attn.k_proj.weight']
+        mapped_weights[f'layers.{layer}.attn.V_weight.weight'] = weights[f'layers.{layer}.attn.v_proj.weight']
+        mapped_weights[f'layers.{layer}.attn.O_weight.weight'] = weights[f'layers.{layer}.attn.output_proj.weight']
+
+        mapped_weights[f'layers.{layer}.rmsnorm1.weight'] = weights[f'layers.{layer}.ln1.weight']
+        mapped_weights[f'layers.{layer}.rmsnorm2.weight'] = weights[f'layers.{layer}.ln2.weight']
+
+        mapped_weights[f'layers.{layer}.ffn.w1_weight'] = weights[f'layers.{layer}.ffn.w1.weight']
+        mapped_weights[f'layers.{layer}.ffn.w2_weight'] = weights[f'layers.{layer}.ffn.w2.weight']
+        mapped_weights[f'layers.{layer}.ffn.w3_weight'] = weights[f'layers.{layer}.ffn.w3.weight']
+    
+    model.load_state_dict(mapped_weights)
+
+    return model(in_indices)
 
 from cs336_basics.transformer import rmsnorm
 def run_rmsnorm(
@@ -430,7 +481,7 @@ def run_get_batch(
     """
     raise NotImplementedError
 
-
+from cs336_basics.transformer import softmax
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
     """
     Given a tensor of inputs, return the output of softmaxing the given `dim`
@@ -444,7 +495,7 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
-    raise NotImplementedError
+    return softmax(in_features, dim)
 
 
 def run_cross_entropy(
