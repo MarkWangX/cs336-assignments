@@ -75,7 +75,7 @@ class positionwise_feedforward(torch.nn.Module):
         return einsum(self.w2_weight, self.GLU(x), "d_model d_ff, ... d_ff -> ... d_model")
     
 class rope(torch.nn.Module):
-    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device=None, dtype=None):
         super().__init__()
         
         k_seq = (torch.arange(d_k, device=device)) // 2
@@ -133,21 +133,23 @@ class multihead_self_attention(torch.nn.Module):
         d_model: int, 
         num_heads: int, 
         max_seq_len: int | None = None,
-        theta: float | None = None
+        theta: float | None = None,
+        device = None,
+        dtype = None
     ):
         super().__init__()
         self.d_model = d_model
         self.num_heads = num_heads
         self.d_k = d_model // num_heads
         
-        self.Q_weight = Linear(d_model, num_heads * self.d_k)
-        self.K_weight = Linear(d_model, num_heads * self.d_k)
-        self.V_weight = Linear(d_model, num_heads * self.d_k)
+        self.Q_weight = Linear(d_model, num_heads * self.d_k, device=device, dtype=dtype)
+        self.K_weight = Linear(d_model, num_heads * self.d_k, device=device, dtype=dtype)
+        self.V_weight = Linear(d_model, num_heads * self.d_k, device=device, dtype=dtype)
 
-        self.O_weight = Linear(num_heads * self.d_k, d_model)
+        self.O_weight = Linear(num_heads * self.d_k, d_model, device=device, dtype=dtype)
 
         if max_seq_len is not None and theta is not None:
-            self.rope = rope(theta, self.d_k, max_seq_len)
+            self.rope = rope(theta, self.d_k, max_seq_len, device=device, dtype=dtype)
         else:
             self.rope = None
 
@@ -159,23 +161,23 @@ class multihead_self_attention(torch.nn.Module):
             token_positions = torch.arange(sequence_length, dtype=torch.long, device=x.device)
             token_positions = repeat(token_positions, "sequence_length -> batch sequence_length", batch=batch)
 
-        Q = self.Q_weight.forward(x)
-        K = self.K_weight.forward(x)
-        V = self.V_weight.forward(x)
+        Q = self.Q_weight(x)
+        K = self.K_weight(x)
+        V = self.V_weight(x)
 
         Q_heads = rearrange(Q, "... seq_len (num_heads d_q) -> ... num_heads seq_len d_q", num_heads=self.num_heads)
         K_heads = rearrange(K, "... seq_len (num_heads d_k) -> ... num_heads seq_len d_k", num_heads=self.num_heads)
         V_heads = rearrange(V, "... seq_len (num_heads d_v) -> ... num_heads seq_len d_v", num_heads=self.num_heads)
 
         if self.rope is not None:
-            Q_heads = self.rope.forward(Q_heads, token_positions)
-            K_heads = self.rope.forward(K_heads, token_positions)
+            Q_heads = self.rope(Q_heads, token_positions)
+            K_heads = self.rope(K_heads, token_positions)
 
         mask = torch.tril(torch.ones(seq_len, seq_len, device=x.device, dtype=torch.bool))
 
         MHA = scaled_dot_product_attention(Q_heads, K_heads, V_heads, mask)
         MHA_concat = rearrange(MHA, "... num_heads seq_len d_v -> ... seq_len (num_heads d_v)", num_heads=self.num_heads)
-        MHSA = self.O_weight.forward(MHA_concat)
+        MHSA = self.O_weight(MHA_concat)
         return MHSA
 
 class transformer_block(torch.nn.Module):
@@ -185,17 +187,19 @@ class transformer_block(torch.nn.Module):
         num_heads: int, 
         max_seq_len: int, 
         theta: int, 
-        d_ff: int
+        d_ff: int,
+        device = None,
+        dtype = None
     ):
         super().__init__()
-        self.rmsnorm1 = rmsnorm(d_model)
-        self.rmsnorm2 = rmsnorm(d_model)
-        self.attn = multihead_self_attention(d_model, num_heads, max_seq_len, theta)
-        self.ffn = positionwise_feedforward(d_model, d_ff)
+        self.rmsnorm1 = rmsnorm(d_model, device=device, dtype=dtype)
+        self.rmsnorm2 = rmsnorm(d_model, device=device, dtype=dtype)
+        self.attn = multihead_self_attention(d_model, num_heads, max_seq_len, theta, device=device, dtype=dtype)
+        self.ffn = positionwise_feedforward(d_model, d_ff, device=device, dtype=dtype)
 
     def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None):
-        x =  x + self.attn.forward(self.rmsnorm1.forward(x), token_positions)
-        x = x + self.ffn.forward(self.rmsnorm2.forward(x))
+        x =  x + self.attn(self.rmsnorm1(x), token_positions)
+        x = x + self.ffn(self.rmsnorm2(x))
         return x
 
 class transformer_lm(torch.nn.Module):
@@ -207,17 +211,19 @@ class transformer_lm(torch.nn.Module):
         d_model: int, 
         num_heads: int, 
         theta: int, 
-        d_ff: int
+        d_ff: int,
+        device = None,
+        dtype = None
     ):
         super().__init__()
-        self.embedding = Embedding(vocab_size, d_model)
+        self.embedding = Embedding(vocab_size, d_model, device=device, dtype=dtype)
         self.layers = nn.ModuleList([
-            transformer_block(d_model, num_heads, context_length, theta, d_ff)
+            transformer_block(d_model, num_heads, context_length, theta, d_ff, device=device, dtype=dtype)
             for _ in range(num_layers)
         ])
 
-        self.rmsnorm = rmsnorm(d_model)
-        self.linear = Linear(d_model, vocab_size)
+        self.rmsnorm = rmsnorm(d_model, device=device, dtype=dtype)
+        self.linear = Linear(d_model, vocab_size, device=device, dtype=dtype)
 
     def forward(self, x: torch.Tensor):
         x = self.embedding(x)
