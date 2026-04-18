@@ -2,7 +2,18 @@ from collections.abc import Callable, Iterable
 from typing import Optional
 import torch
 import math
-from einops import reduce
+from einops import reduce, rearrange
+
+def cross_entropy(inputs: torch.Tensor, targets: torch.Tensor):
+    ########################################################################################
+    ##  inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
+    ########################################################################################
+    inputs = inputs - reduce(inputs, "... vocab_size -> ... 1", "max")
+    inputs_exp = torch.exp(inputs)
+    deno = torch.log(reduce(inputs_exp, "... vocab_size -> ... 1", "sum"))
+    nume = torch.gather(inputs, dim=-1, index = rearrange(targets, "... -> ... 1"))
+    cross_entropy_loss = deno - nume
+    return reduce(cross_entropy_loss, "...  -> ", "mean")
 
 class adamw(torch.optim.Optimizer):
     def __init__(self, params, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay=1e-2):
