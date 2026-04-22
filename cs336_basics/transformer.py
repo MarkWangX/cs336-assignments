@@ -98,6 +98,9 @@ class rope(torch.nn.Module):
         x_rotate_half[..., 1::2] = x[..., 0::2]
 
         cos, sin = self.cos_cached[token_positions], self.sin_cached[token_positions]
+        if x.dim() == 4:
+            cos = rearrange(cos, 'b s d -> b 1 s d')
+            sin = rearrange(sin, 'b s d -> b 1 s d')
     
         return cos * x + sin * x_rotate_half
     
@@ -122,7 +125,7 @@ def scaled_dot_product_attention(
 
     scores = einsum(Q, K, "... queries d_k, ... keys d_k -> ... queries keys") / (d_k ** 0.5)
     scores_masked = scores.masked_fill(mask == False, float('-inf'))
-    scores_masked_softmax = softmax(scores_masked, -1)
+    scores_masked_softmax = softmax(scores_masked, -1).to(V.dtype)
     # keys == values
     attention = einsum(scores_masked_softmax, V, "... queries keys, ... keys d_v -> ... queries d_v")
     return attention
