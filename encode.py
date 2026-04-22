@@ -8,8 +8,8 @@ merges_path = "data/owt_merges.pkl"
 
 tokenizer = Tokenizer.from_files(vocab_path, merges_path, special_tokens=["<|endoftext|>"])
 
-input_text_path = "data/owt_train.txt"
-output_text_path = "data/owt_train.bin"
+input_text_path = "data/owt_valid.txt"
+output_text_path = "data/owt_valid.bin"
 
 with open(input_text_path, "r", encoding="utf-8") as f:
     total_lines = sum(1 for _ in f)
